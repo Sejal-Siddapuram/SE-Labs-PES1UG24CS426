@@ -1,6 +1,6 @@
 import random
 import pygame
-from game.block import Block
+from game.block import Block, Debris
 
 
 PERFECT_TOLERANCE = 12.0
@@ -40,6 +40,7 @@ class GameEngine:
         self.perfect_popup_start = None
         self.perfect_popup_x = 0
         self.perfect_popup_y = 0
+        self.debris = []
 
         base_x = (self.width - self.base_width) // 2
         base_y = self.height - 60
@@ -118,6 +119,24 @@ class GameEngine:
             else:
                 self.perfect_streak = 0
 
+                if act.x < top_block.x:
+                    debris_x = act.x
+                    debris_width = top_block.x - act.x
+                else:
+                    debris_x = top_block.x + top_block.width
+                    debris_width = (act.x + act.width) - debris_x
+
+                if debris_width > 0:
+                    self.debris.append(
+                        Debris(
+                            debris_x,
+                            act.y,
+                            debris_width,
+                            self.block_height,
+                            act.color
+                        )
+                    )
+
                 trimmed_width = max(10.0, overlap)
                 new_block = Block(
                     left,
@@ -135,6 +154,8 @@ class GameEngine:
                 shift_amount = self.block_height + 4
                 for b in self.stack:
                     b.y += shift_amount
+                for debris in self.debris:
+                    debris.shift(shift_amount)
 
             self.spawn_active_block()
         else:
@@ -158,6 +179,15 @@ class GameEngine:
         if not self.game_over:
             self.active_block.update(self.width)
 
+        for debris in self.debris:
+            debris.update()
+
+        self.debris = [
+            debris
+            for debris in self.debris
+            if not debris.is_off_screen(self.height)
+        ]
+
     def render(self, screen):
         screen.fill((24, 27, 36))
 
@@ -169,6 +199,9 @@ class GameEngine:
 
         for b in self.stack:
             b.render(screen)
+
+        for debris in self.debris:
+            debris.render(screen)
 
         if not self.game_over:
             self.active_block.render(screen)
