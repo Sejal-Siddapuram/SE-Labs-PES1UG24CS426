@@ -3,6 +3,12 @@ import pygame
 from game.block import Block
 
 
+PERFECT_TOLERANCE = 12.0
+PERFECT_BONUS = 3
+PERFECT_RESTORE_WIDTH = 12.0
+PERFECT_POPUP_DURATION = 800
+
+
 class GameEngine:
     def __init__(self, width, height):
         self.width = width
@@ -30,10 +36,21 @@ class GameEngine:
     def reset(self):
         self.score = 0
         self.game_over = False
+        self.perfect_streak = 0
+        self.perfect_popup_start = None
+        self.perfect_popup_x = 0
+        self.perfect_popup_y = 0
 
         base_x = (self.width - self.base_width) // 2
         base_y = self.height - 60
-        base_block = Block(base_x, base_y, self.base_width, self.block_height, self.get_color(0), speed=0)
+        base_block = Block(
+            base_x,
+            base_y,
+            self.base_width,
+            self.block_height,
+            self.get_color(0),
+            speed=0
+        )
         self.stack = [base_block]
 
         self.spawn_active_block()
@@ -45,7 +62,14 @@ class GameEngine:
         color = self.get_color(len(self.stack))
 
         start_x = 25 if random.choice([True, False]) else self.width - 25 - top_block.width
-        self.active_block = Block(start_x, next_y, top_block.width, self.block_height, color, speed=speed)
+        self.active_block = Block(
+            start_x,
+            next_y,
+            top_block.width,
+            self.block_height,
+            color,
+            speed=speed
+        )
 
     def drop_block(self):
         if self.game_over:
@@ -61,10 +85,51 @@ class GameEngine:
         is_successful_drop = overlap > 0
 
         if is_successful_drop:
-            trimmed_width = max(10.0, overlap)
-            new_block = Block(left, act.y, trimmed_width, self.block_height, act.color, speed=0)
+            is_perfect = abs(act.x - top_block.x) <= PERFECT_TOLERANCE
+
+            if is_perfect:
+                self.perfect_streak += 1
+
+                new_width = top_block.width
+
+                if self.perfect_streak >= 2:
+                    new_width = min(
+                        self.base_width,
+                        top_block.width + PERFECT_RESTORE_WIDTH
+                    )
+
+                new_x = top_block.x - (new_width - top_block.width) / 2
+                new_x = max(0, min(new_x, self.width - new_width))
+
+                new_block = Block(
+                    new_x,
+                    act.y,
+                    new_width,
+                    self.block_height,
+                    act.color,
+                    speed=0
+                )
+
+                self.score += 1 + PERFECT_BONUS
+
+                self.perfect_popup_start = pygame.time.get_ticks()
+                self.perfect_popup_x = new_x + new_width / 2
+                self.perfect_popup_y = act.y - 8
+            else:
+                self.perfect_streak = 0
+
+                trimmed_width = max(10.0, overlap)
+                new_block = Block(
+                    left,
+                    act.y,
+                    trimmed_width,
+                    self.block_height,
+                    act.color,
+                    speed=0
+                )
+                self.score += 1
+
             self.stack.append(new_block)
-            self.score += 1
 
             if new_block.y < 180:
                 shift_amount = self.block_height + 4
@@ -73,6 +138,7 @@ class GameEngine:
 
             self.spawn_active_block()
         else:
+            self.perfect_streak = 0
             self.game_over = True
 
     def handle_event(self, event):
@@ -107,16 +173,65 @@ class GameEngine:
         if not self.game_over:
             self.active_block.render(screen)
 
+        if self.perfect_popup_start is not None:
+            elapsed = pygame.time.get_ticks() - self.perfect_popup_start
+
+            if elapsed < PERFECT_POPUP_DURATION:
+                alpha = int(255 * (1 - elapsed / PERFECT_POPUP_DURATION))
+
+                popup_surf = self.font_big.render(
+                    "PERFECT!",
+                    True,
+                    (255, 220, 80)
+                )
+                popup_surf.set_alpha(alpha)
+
+                popup_rect = popup_surf.get_rect(
+                    center=(
+                        int(self.perfect_popup_x),
+                        int(self.perfect_popup_y - elapsed * 0.04)
+                    )
+                )
+                screen.blit(popup_surf, popup_rect)
+            else:
+                self.perfect_popup_start = None
+
         if self.game_over:
             overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 195))
             screen.blit(overlay, (0, 0))
 
             over_surf = self.font_big.render("TOWER COLLAPSED!", True, (240, 75, 75))
-            screen.blit(over_surf, (self.width // 2 - over_surf.get_width() // 2, self.height // 2 - 40))
+            screen.blit(
+                over_surf,
+                (
+                    self.width // 2 - over_surf.get_width() // 2,
+                    self.height // 2 - 40
+                )
+            )
 
-            final_surf = self.font_hud.render(f"Final Height: {self.score}", True, (255, 255, 255))
-            screen.blit(final_surf, (self.width // 2 - final_surf.get_width() // 2, self.height // 2 + 10))
+            final_surf = self.font_hud.render(
+                f"Final Height: {self.score}",
+                True,
+                (255, 255, 255)
+            )
+            screen.blit(
+                final_surf,
+                (
+                    self.width // 2 - final_surf.get_width() // 2,
+                    self.height // 2 + 10
+                )
+            )
 
-            restart_surf = self.font_hud.render("Press [Space] or [R] to Play Again", True, (200, 200, 200))
-            screen.blit(restart_surf, (self.width // 2 - restart_surf.get_width() // 2, self.height // 2 + 50))
+            restart_surf = self.font_hud.render(
+                "Press [Space] or [R] to Play Again",
+                True,
+                (200, 200, 200)
+            )
+            screen.blit(
+                restart_surf,
+                (
+                    self.width // 2 - restart_surf.get_width() // 2,
+                    self.height // 2 + 50
+                )
+            )
