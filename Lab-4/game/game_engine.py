@@ -8,6 +8,15 @@ PERFECT_BONUS = 3
 PERFECT_RESTORE_WIDTH = 12.0
 PERFECT_POPUP_DURATION = 800
 
+BACKGROUND_STAGE_COLORS = [
+    (45, 85, 145),    # Evening blue
+    (220, 105, 75),   # Dusk orange
+    (185, 85, 135),   # Dusk pink
+    (65, 45, 105),    # Deep purple night
+    (8, 10, 20),      # Near-black space
+]
+BACKGROUND_TRANSITION_BLOCKS = 40
+
 
 class GameEngine:
     def __init__(self, width, height):
@@ -19,6 +28,12 @@ class GameEngine:
         self.font_title = pygame.font.SysFont(None, 38)
         self.font_hud = pygame.font.SysFont(None, 28)
         self.font_big = pygame.font.SysFont(None, 46)
+
+        random.seed(7)
+        self.stars = [
+            (random.randint(10, self.width - 10), random.randint(10, self.height - 10))
+            for _ in range(45)
+        ]
 
         self.reset()
 
@@ -71,6 +86,69 @@ class GameEngine:
             color,
             speed=speed
         )
+
+    def get_background_colors(self):
+        progress = min(1.0, self.score / BACKGROUND_TRANSITION_BLOCKS)
+        stage_count = len(BACKGROUND_STAGE_COLORS) - 1
+
+        scaled_progress = progress * stage_count
+        stage_index = min(int(scaled_progress), stage_count - 1)
+        stage_progress = scaled_progress - stage_index
+
+        color_a = BACKGROUND_STAGE_COLORS[stage_index]
+        color_b = BACKGROUND_STAGE_COLORS[stage_index + 1]
+
+        current_color = tuple(
+            int(color_a[i] + (color_b[i] - color_a[i]) * stage_progress)
+            for i in range(3)
+        )
+
+        top_color = tuple(
+            min(255, int(value * 1.18))
+            for value in current_color
+        )
+        bottom_color = tuple(
+            max(0, int(value * 0.62))
+            for value in current_color
+        )
+
+        return top_color, bottom_color, progress
+
+    def render_background(self, screen):
+        top_color, bottom_color, progress = self.get_background_colors()
+
+        gradient_height = 80
+
+        for band in range(gradient_height):
+            t = band / (gradient_height - 1)
+            color = tuple(
+                int(top_color[i] + (bottom_color[i] - top_color[i]) * t)
+                for i in range(3)
+            )
+            y = band * self.height // gradient_height
+            next_y = (band + 1) * self.height // gradient_height
+            pygame.draw.rect(
+                screen,
+                color,
+                (0, y, self.width, next_y - y + 1)
+            )
+
+        if progress >= 0.72:
+            star_alpha = int(255 * ((progress - 0.72) / 0.28))
+            star_surface = pygame.Surface(
+                (self.width, self.height),
+                pygame.SRCALPHA
+            )
+
+            for x, y in self.stars:
+                pygame.draw.circle(
+                    star_surface,
+                    (255, 255, 255, star_alpha),
+                    (x, y),
+                    1
+                )
+
+            screen.blit(star_surface, (0, 0))
 
     def drop_block(self):
         if self.game_over:
@@ -189,13 +267,38 @@ class GameEngine:
         ]
 
     def render(self, screen):
-        screen.fill((24, 27, 36))
+        self.render_background(screen)
 
-        title_surf = self.font_title.render("Skyscraper Stack", True, (245, 245, 245))
-        screen.blit(title_surf, (self.width // 2 - title_surf.get_width() // 2, 16))
+        title_shadow = self.font_title.render(
+            "Skyscraper Stack",
+            True,
+            (0, 0, 0)
+        )
+        title_surf = self.font_title.render(
+            "Skyscraper Stack",
+            True,
+            (245, 245, 245)
+        )
 
-        score_surf = self.font_hud.render(f"Height: {self.score}", True, (255, 220, 80))
-        screen.blit(score_surf, (self.width // 2 - score_surf.get_width() // 2, 54))
+        title_x = self.width // 2 - title_surf.get_width() // 2
+        screen.blit(title_shadow, (title_x + 2, 18))
+        screen.blit(title_surf, (title_x, 16))
+
+        score_text = f"Height: {self.score}"
+        score_shadow = self.font_hud.render(
+            score_text,
+            True,
+            (0, 0, 0)
+        )
+        score_surf = self.font_hud.render(
+            score_text,
+            True,
+            (255, 220, 80)
+        )
+
+        score_x = self.width // 2 - score_surf.get_width() // 2
+        screen.blit(score_shadow, (score_x + 2, 56))
+        screen.blit(score_surf, (score_x, 54))
 
         for b in self.stack:
             b.render(screen)
@@ -212,11 +315,18 @@ class GameEngine:
             if elapsed < PERFECT_POPUP_DURATION:
                 alpha = int(255 * (1 - elapsed / PERFECT_POPUP_DURATION))
 
+                popup_shadow = self.font_big.render(
+                    "PERFECT!",
+                    True,
+                    (0, 0, 0)
+                )
                 popup_surf = self.font_big.render(
                     "PERFECT!",
                     True,
                     (255, 220, 80)
                 )
+
+                popup_shadow.set_alpha(alpha)
                 popup_surf.set_alpha(alpha)
 
                 popup_rect = popup_surf.get_rect(
@@ -225,16 +335,29 @@ class GameEngine:
                         int(self.perfect_popup_y - elapsed * 0.04)
                     )
                 )
+
+                shadow_rect = popup_rect.copy()
+                shadow_rect.x += 2
+                shadow_rect.y += 2
+
+                screen.blit(popup_shadow, shadow_rect)
                 screen.blit(popup_surf, popup_rect)
             else:
                 self.perfect_popup_start = None
 
         if self.game_over:
-            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            overlay = pygame.Surface(
+                (self.width, self.height),
+                pygame.SRCALPHA
+            )
             overlay.fill((0, 0, 0, 195))
             screen.blit(overlay, (0, 0))
 
-            over_surf = self.font_big.render("TOWER COLLAPSED!", True, (240, 75, 75))
+            over_surf = self.font_big.render(
+                "TOWER COLLAPSED!",
+                True,
+                (240, 75, 75)
+            )
             screen.blit(
                 over_surf,
                 (
