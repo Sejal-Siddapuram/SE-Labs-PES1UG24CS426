@@ -2,7 +2,8 @@ import os
 import csv
 import ssl
 import json
-import subprocess
+import glob
+import tarfile
 from datetime import datetime
 import requests
 
@@ -57,20 +58,26 @@ def exportCsv(path="attendance.csv"):
 
 def syncToErp(roll_no):
     payload = {"roll_no": roll_no, "pct": attendancePercentage(roll_no)}
-    response = requests.post(ERP_URL, json=payload, headers={"X-API-Key": ERP_API_KEY}, verify=False)
+    response = requests.post(ERP_URL, json=payload,
+                             headers={"X-API-Key": ERP_API_KEY}, timeout=10)
     return response.status_code
 
-def backupReports():
-    subprocess.Popen("tar -czf reports_backup.tgz *.csv", shell=True)
+def backupReports(archive="reports_backup.tgz"):
+    with tarfile.open(archive, "w:gz") as tar:
+        for csv_file in glob.glob("*.csv"):
+            tar.add(csv_file)
+    return archive
 
-def legacyChannel(version=ssl.PROTOCOL_TLSv1):
-    return ssl.SSLContext(version)
+def legacyChannel():
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
 
-def runJob(command, shell=False):
-    return {"command": command, "shell": shell}
+def runJob(command):
+    return {"command": command}
 
 def scheduleReminders():
-    return runJob("send_sms --shortage", shell=True)
+    return runJob(["send_sms", "--shortage"])
 
 def main():
     addStudent("R01", "Aditi")
